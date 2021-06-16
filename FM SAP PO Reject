@@ -1,0 +1,68 @@
+FUNCTION ZFM_PO_REJECT.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     REFERENCE(I_EBELN) TYPE  EBELN
+*"  TABLES
+*"      T_RETURN STRUCTURE  BAPIRET2
+*"----------------------------------------------------------------------
+  DATA: LR_PO           TYPE REF TO CL_PO_HEADER_HANDLE_MM,
+        LS_BAPI         TYPE BAPIRET2,
+        L_RESULT        TYPE MMPUR_BOOL,
+        LS_DOCUMENT     TYPE MEPO_DOCUMENT.
+
+*  prepare creation of PO instance
+  LS_DOCUMENT-PROCESS     = 'PO_PROCESS'.
+  LS_DOCUMENT-TRTYP       = 'VER'.
+  LS_DOCUMENT-DOC_KEY(10) = I_EBELN.
+  LS_DOCUMENT-INITIATOR-INITIATOR = 'RELEASE'.
+
+  CREATE OBJECT LR_PO.
+  LR_PO->FOR_BAPI = 'X'.
+  LR_PO->PO_INITIALIZE( LS_DOCUMENT ).
+  LR_PO->SET_PO_NUMBER( I_EBELN ).
+
+ TRY.
+      LR_PO->PO_READ( EXPORTING IM_TCODE     = 'ME29N'
+                                IM_TRTYP     = LS_DOCUMENT-TRTYP
+                                IM_AKTYP     = LS_DOCUMENT-TRTYP
+                                IM_PO_NUMBER = I_EBELN
+                                IM_DOCUMENT  = LS_DOCUMENT
+                      IMPORTING EX_RESULT    = L_RESULT ).
+    CATCH CX_ROOT.
+      L_RESULT = MMPUR_NO.
+  ENDTRY.
+
+  IF L_RESULT = MMPUR_NO.
+    RETURN.
+  ENDIF.
+ IF LR_PO->IF_RELEASABLE_MM~IS_REJECTION_ALLOWED( ) EQ 'X'.
+    LR_PO->IF_RELEASABLE_MM~REJECT(
+                       EXPORTING  IM_RESET = ''
+                       EXCEPTIONS FAILED   = 0 ).
+    IF SY-SUBRC EQ 0.
+      "Success here
+      LR_PO->PO_POST( EXCEPTIONS FAILURE = 1
+                                 OTHERS  = 2 ).
+      IF SY-SUBRC GT 0.
+        LR_PO->PO_INITIALIZE( ).
+      ELSE.
+        LR_PO->PO_CLOSE( ).
+        FREE LR_PO.
+      ENDIF.
+    ELSE.
+      CALL FUNCTION 'BALW_BAPIRETURN_GET2'
+        EXPORTING
+          TYPE   = SY-MSGTY
+          CL     = SY-MSGID
+          NUMBER = SY-MSGNO
+          PAR1   = SY-MSGV1
+          PAR2   = SY-MSGV2
+          PAR3   = SY-MSGV3
+        IMPORTING
+          RETURN = LS_BAPI.
+      APPEND LS_BAPI TO T_RETURN.
+    ENDIF.
+  ENDIF.
+
+ENDFUNCTION.
